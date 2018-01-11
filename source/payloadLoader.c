@@ -15,8 +15,8 @@ static u8 SysArea[CARD_WORKAREA] ATTRIBUTE_ALIGN(32);
 u32 first_frame = 1;
 GXRModeObj *rmode = NULL;
 void (*PSOreload)() = (void(*)())0x80001800;
-void *safeBufferLocationTrustMe = (void *)0x81400000;
-void *safeCodeLocationTrustMe = (void *)0x800103100;
+static u32 safeBufferLocationTrustMe = 0x80EDA000; // Max value: 0x80EDA000
+static u32 safeCodeLocationTrustMe = 0x80D03100;
 
 
 /*---------------------------------------------------------------------------------
@@ -110,14 +110,16 @@ int main() {
 					//printf("%08X%08X\n", *((unsigned int *)(CardBuffer + 8)), *((unsigned int *)(CardBuffer + 12)));
 					//printf("%08X%08X\n", *((unsigned int *)(CardBuffer + 16)), *((unsigned int *)(CardBuffer + 20)));
 					//printf("%08X%08X\n", *((unsigned int *)(CardBuffer + 24)), *((unsigned int *)(CardBuffer + 28)));
-					memcpy(safeBufferLocationTrustMe, (CardBuffer + 0x50), sizeof(u8) * (SectorSize - 0x50));
+					memcpy((void *)safeBufferLocationTrustMe, (CardBuffer + 0x50), sizeof(u8) * (SectorSize - 0x50));
 					curLocation += SectorSize;
 					for (; curLocation < 1170; curLocation += SectorSize) {
 						//printf("%08X%08X\n", *((unsigned int *)(CardBuffer + i)), *((unsigned int *)(CardBuffer + 1 + 4)));
 						CARD_Read(&CardFile, CardBuffer, SectorSize, curLocation);
-						memcpy(safeBufferLocationTrustMe, CardBuffer, sizeof(u8) * SectorSize);
+						memcpy((void *)safeBufferLocationTrustMe, CardBuffer, sizeof(u8) * SectorSize);
 					}
-					
+					CARD_Close(&CardFile);
+					CARD_Unmount(CARD_SLOTA);
+					free(CardBuffer);
 					printf("Copy completed\n");
 					printf("Press A to Locate DOL\n");
 
@@ -127,7 +129,7 @@ int main() {
 						VIDEO_WaitVSync();
 					} while (!(PAD_ButtonsDown(0) & PAD_BUTTON_A));
 					
-
+					// Struct from: https://github.com/emukidid/xenogcfork/blob/master/XenoShell/source/main.c#L336
 					struct dol_s {
 						unsigned long sec_pos[18];
 						unsigned long sec_address[18];
@@ -139,9 +141,9 @@ int main() {
 					for (int i = 0; i < 18; i++) {
 						u32 secAddr = dol->sec_address[i];
 						secAddr &= 0xFFFFFF;
-						u32 locatedAddr = secAddr + ((u32)safeCodeLocationTrustMe);
+						u32 locatedAddr = secAddr + (safeCodeLocationTrustMe);
 						u32 loadAddr = dol->sec_pos[i];
-						u32 locatedLoadAddr = loadAddr + ((u32)safeBufferLocationTrustMe);
+						u32 locatedLoadAddr = loadAddr + (safeBufferLocationTrustMe);
 						printf("Section Location: %08lx done\n", secAddr);
 						printf("Buffer Location: %08lx done\n", loadAddr);
 						printf("Section Location Located: %08lx done\n", locatedAddr);
@@ -152,6 +154,10 @@ int main() {
 							if (PAD_ButtonsDown(0) & PAD_BUTTON_START) PSOreload();
 							VIDEO_WaitVSync();
 						} while (!(PAD_ButtonsDown(0) & PAD_BUTTON_A));
+						//for (u32 offset = 0; offset < dol->sec_size[i]; offset++) {
+						//	u8 byte = *(((u8 *)locatedLoadAddr) + offset);
+						//	*(((u8 *)locatedAddr) + offset) = byte;
+						//}
 						memcpy((void *)locatedAddr, (void *)locatedLoadAddr, dol->sec_size[i]);
 
 						printf("Section %d done\n", i);
@@ -178,7 +184,7 @@ int main() {
 					printf("Card Error: %d\n", CardError);
 				}
 				
-				CARD_Close(&CardFile);
+				
 			
 			} else {
 				printf("File not found ...\n");
@@ -196,8 +202,6 @@ int main() {
 				}*/
 			}
 
-			CARD_Unmount(CARD_SLOTA);
-			free(CardBuffer);
 			
 		}
 	}
