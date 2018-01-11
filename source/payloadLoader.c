@@ -135,20 +135,20 @@ int main() {
 						unsigned long sec_address[18];
 						unsigned long sec_size[18];
 						unsigned long bss_address, bss_size, entry_point;
-					} *dol = (struct dol_s*)safeBufferLocationTrustMe;
+					} dol = *((struct dol_s*)safeBufferLocationTrustMe);
 
 
 					for (int i = 0; i < 18; i++) {
-						u32 secAddr = dol->sec_address[i];
+						u32 secAddr = dol.sec_address[i];
 						secAddr &= 0xFFFFFF;
 						u32 locatedAddr = secAddr + (safeCodeLocationTrustMe);
-						u32 loadAddr = dol->sec_pos[i];
+						u32 loadAddr = dol.sec_pos[i];
 						u32 locatedLoadAddr = loadAddr + (safeBufferLocationTrustMe);
 						printf("Section Location: %08lx done\n", secAddr);
 						printf("Buffer Location: %08lx done\n", loadAddr);
 						printf("Section Location Located: %08lx done\n", locatedAddr);
 						printf("Buffer Location Located: %08lx done\n", locatedLoadAddr);
-						printf("Section Size: %lu done\n", dol->sec_size[i]);
+						printf("Section Size: %lu done\n", dol.sec_size[i]);
 						do {
 							PAD_ScanPads();
 							if (PAD_ButtonsDown(0) & PAD_BUTTON_START) PSOreload();
@@ -158,7 +158,7 @@ int main() {
 						//	u8 byte = *(((u8 *)locatedLoadAddr) + offset);
 						//	*(((u8 *)locatedAddr) + offset) = byte;
 						//}
-						memcpy((void *)locatedAddr, (void *)locatedLoadAddr, dol->sec_size[i]);
+						memcpy((void *)locatedAddr, (void *)locatedLoadAddr, dol.sec_size[i]);
 
 						printf("Section %d done\n", i);
 						do {
@@ -168,8 +168,12 @@ int main() {
 						} while (!(PAD_ButtonsDown(0) & PAD_BUTTON_A));
 					}
 
-					void(*entrypoint)() = (void(*)())(dol->entry_point + ((u8 *)safeCodeLocationTrustMe));
+					u32 entryPoint = dol.entry_point;
+					entryPoint &= 0xFFFFFF;
+					entryPoint += safeCodeLocationTrustMe;
+					void(*entrypointFunc)() = (void(*)())(entryPoint);
 
+					printf("Entry Point: %08lX\n", entryPoint);
 					printf("Press A to jump\n");
 
 					do {
@@ -177,7 +181,7 @@ int main() {
 						if (PAD_ButtonsDown(0) & PAD_BUTTON_START) PSOreload();
 						VIDEO_WaitVSync();
 					} while (!(PAD_ButtonsDown(0) & PAD_BUTTON_A));
-					entrypoint();
+					entrypointFunc();
 
 				}
 				else {
