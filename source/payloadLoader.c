@@ -16,7 +16,7 @@ u32 first_frame = 1;
 GXRModeObj *rmode = NULL;
 void (*PSOreload)() = (void(*)())0x80001800;
 static u32 safeBufferLocationTrustMe = 0x80EDA000; // Max value: 0x80EDA000
-static u32 safeCodeLocationTrustMe = 0x80D03100;
+static u32 safeCodeLocationTrustMe = 0x80BDA000;
 
 
 /*---------------------------------------------------------------------------------
@@ -79,6 +79,7 @@ int main() {
 
 			char *CardBuffer = (char *)memalign(32,SectorSize);
 			
+			
 			printf("Starting directory\n");
 
 			card_dir CardDir = {0};
@@ -97,6 +98,7 @@ int main() {
 			printf("Finished directory\n\n");
 			
 			if (found) {
+				printf("Card Buffer location: %08lX\n", (u32)CardBuffer);
 				printf("Sector Size: %d\n", SectorSize);
 				printf("Test file contains :- \n");
 				CardError = CARD_Open(CARD_SLOTA, PAYLOAD_FILE_NAME, &CardFile);
@@ -106,6 +108,77 @@ int main() {
 
 					// First read is an edge case (data starts at 0x50)
 					CARD_Read(&CardFile, CardBuffer, SectorSize, curLocation);
+					struct dol_s {
+						unsigned long sec_pos[18];
+						unsigned long sec_address[18];
+						unsigned long sec_size[18];
+						unsigned long bss_address, bss_size, entry_point;
+					} dol = *((struct dol_s*)(CardBuffer + 0x50));
+					for (u32 i = 0; i < 18; i++) {
+						printf("Starting Section: %lu\n", i);
+						
+						u32 position = dol.sec_pos[i];
+						u32 address = dol.sec_address[i] & 0xFFFFFF;
+						u32 size = dol.sec_size[i];
+						if (position == 0 || size == 0)
+							continue;
+						u32 sectorStart = (position + 0x50) / SectorSize;
+						u32 sectorEnd = (position + size + 0x50) / SectorSize;
+						u32 bytesLeft = size;
+						u32 bytesWritten = 0;
+						printf("Size: %lu\n", size);
+						printf("DOL Address: %08lX\n", address);
+						printf("Logical Address: %08lX\n", address + safeCodeLocationTrustMe);
+						printf("Logical End Address: %08lX\n", address + safeCodeLocationTrustMe + size);
+						do {
+							PAD_ScanPads();
+							if (PAD_ButtonsDown(0) & PAD_BUTTON_START) PSOreload();
+							VIDEO_WaitVSync();
+						} while (!(PAD_ButtonsDown(0) & PAD_BUTTON_A));
+						for (u32 sector = sectorStart; sector <= sectorEnd; sector++) {
+							
+							CARD_Read(&CardFile, CardBuffer, SectorSize, sector * SectorSize);
+							
+							u32 amountToRead = SectorSize;
+							if (bytesLeft < SectorSize) {
+								amountToRead = bytesLeft;
+							}
+							if (sector == 0) {
+								amountToRead -= 0x50;
+								memcpy((void *)(safeCodeLocationTrustMe + address + bytesWritten), CardBuffer + 0x50, amountToRead);
+							}
+							else {
+								memcpy((void *)(safeCodeLocationTrustMe + address + bytesWritten), CardBuffer, amountToRead);
+							}
+							bytesLeft -= amountToRead;
+							bytesWritten += amountToRead;
+						}
+
+						printf("Finished Section: %lu\n", i);
+					}
+					CARD_Close(&CardFile);
+					CARD_Unmount(CARD_SLOTA);
+					free(CardBuffer);
+
+
+					u32 entryPoint = dol.entry_point;
+					entryPoint &= 0xFFFFFF;
+					entryPoint += safeCodeLocationTrustMe;
+					void(*entrypointFunc)() = (void(*)())(entryPoint);
+
+					printf("Entry Point: %08lX\n", entryPoint);
+					printf("Press A to jump\n");
+
+					do {
+						PAD_ScanPads();
+						if (PAD_ButtonsDown(0) & PAD_BUTTON_START) PSOreload();
+						VIDEO_WaitVSync();
+					} while (!(PAD_ButtonsDown(0) & PAD_BUTTON_A));
+					entrypointFunc();
+
+					/*
+					The "old style"
+
 					//printf("%08X%08X\n", *((unsigned int *)(CardBuffer)), *((unsigned int *)(CardBuffer+ 4)));
 					//printf("%08X%08X\n", *((unsigned int *)(CardBuffer + 8)), *((unsigned int *)(CardBuffer + 12)));
 					//printf("%08X%08X\n", *((unsigned int *)(CardBuffer + 16)), *((unsigned int *)(CardBuffer + 20)));
@@ -182,7 +255,7 @@ int main() {
 						VIDEO_WaitVSync();
 					} while (!(PAD_ButtonsDown(0) & PAD_BUTTON_A));
 					entrypointFunc();
-
+					*/
 				}
 				else {
 					printf("Card Error: %d\n", CardError);
